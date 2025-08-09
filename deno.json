@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/denoland/deno/main/cli/schemas/config-file.v1.json",
+  "imports": {
+    "@commitlint/config-conventional": "npm:@commitlint/config-conventional@^19.6.0",
+    "@commitlint/types": "npm:@commitlint/types@^19.5.0",
+    "@rollup/pluginutils": "npm:@rollup/pluginutils@^5.2.0",
+    "@std/expect": "jsr:@std/expect@^1.0.16",
+    "@types/estree": "npm:@types/estree@^1.0.8",
+    "acorn": "npm:acorn@^8.15.0",
+    "estree-walker": "npm:estree-walker@^3.0.3",
+    "magic-string": "npm:magic-string@^0.30.17",
+    "regex": "npm:regex@^6.0.1",
+    "regexp-tree": "npm:regexp-tree@^0.1.27",
+    "rollup": "npm:rollup@^4.46.2"
+  },
+  "tasks": {
+    "init": "deno run --allow-env --allow-read --allow-write --allow-run npm:husky",
+    "lint-staged": "deno run --allow-env --allow-read --allow-write --allow-sys --allow-run npm:lint-staged",
+    "ci": "deno run --allow-env --allow-read --allow-run npm:@biomejs/biome ci",
+    "check": "deno run --allow-env --allow-read --allow-run npm:@biomejs/biome check",
+    "commitlint": "deno run --allow-env --allow-sys --allow-read --allow-write --allow-run npm:@commitlint/cli"
+  },
+  "nodeModulesDir": "auto"
+}
