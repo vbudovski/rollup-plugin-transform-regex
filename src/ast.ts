@@ -1,6 +1,7 @@
 // @deno-types="@types/estree"
 import type {
     CallExpression,
+    Expression,
     ExpressionStatement,
     Identifier,
     Literal,
@@ -10,10 +11,20 @@ import type {
     ObjectExpression,
     Property,
     RegExpLiteral,
+    SpreadElement,
     TaggedTemplateExpression,
-    TemplateElement,
     TemplateLiteral,
 } from 'estree';
+import { pattern } from 'regex';
+import type {
+    BooleanLiteral,
+    NumberLiteral,
+    PatternCallExpression,
+    PatternTaggedTemplateExpression,
+    RegExpConstructorCall,
+    StringLike,
+    StringLiteral,
+} from './types.ts';
 
 const isIdentifier = (node: Node | null | undefined, name?: string): node is Identifier =>
     node?.type === 'Identifier' && (name ? node.name === name : true);
@@ -41,17 +52,11 @@ const isProperty = (node: Node | null | undefined): node is Property =>
 
 const isLiteral = (node: Node | null | undefined): node is Literal => node?.type === 'Literal';
 
-type StringLiteral = Literal & { value: string };
-
 const isStringLiteral = (node: Node | null | undefined): node is StringLiteral =>
     isLiteral(node) && typeof node.value === 'string';
 
-type NumberLiteral = Literal & { value: number };
-
 const isNumberLiteral = (node: Node | null | undefined): node is NumberLiteral =>
     isLiteral(node) && typeof node.value === 'number';
-
-type BooleanLiteral = Literal & { value: boolean };
 
 const isBooleanLiteral = (node: Node | null | undefined): node is BooleanLiteral =>
     isLiteral(node) && typeof node.value === 'boolean';
@@ -59,7 +64,7 @@ const isBooleanLiteral = (node: Node | null | undefined): node is BooleanLiteral
 const isRegExpLiteral = (node: Node | null | undefined): node is RegExpLiteral =>
     isLiteral(node) && (node as RegExpLiteral).regex != null;
 
-function isNondynamicString(node: Node): node is StringLiteral | TemplateLiteral | TaggedTemplateExpression {
+function isStaticString(node: Node): node is StringLiteral | TemplateLiteral | TaggedTemplateExpression {
     return (
         isStringLiteral(node) ||
         (isTemplateLiteral(node) && node.quasis.length === 1 && node.expressions.length === 0) ||
@@ -74,33 +79,32 @@ function isNondynamicString(node: Node): node is StringLiteral | TemplateLiteral
     );
 }
 
-function isNondynamicRegExpCall(node: Node): node is CallExpression | NewExpression {
-    if (!isNewExpression(node) && !isCallExpression(node)) {
+function isStringArgument(arg: Expression | SpreadElement): arg is StringLike {
+    return arg.type !== 'SpreadElement' && isStaticString(arg);
+}
+
+function isStaticRegExpCall(node: Node): node is RegExpConstructorCall {
+    if (node.type !== 'CallExpression' && node.type !== 'NewExpression') {
+        return false;
+    }
+
+    if (node.callee.type !== 'Identifier' || node.callee.name !== 'RegExp') {
         return false;
     }
 
     const args = node.arguments ?? [];
+    if (!(args.length === 1 || args.length === 2)) {
+        return false;
+    }
 
-    return (
-        isIdentifier(node.callee, 'RegExp') &&
-        (args.length === 1 || args.length === 2) &&
-        args.every((a) => isNondynamicString(a))
-    );
+    if (!isStringArgument(args[0])) {
+        return false;
+    }
+
+    return !(args.length === 2 && !isStringArgument(args[1]));
 }
 
-type NondynamicPatternArg = StringLiteral | TemplateLiteral | TaggedTemplateExpression | NumberLiteral;
-
-type PatternCallExpression = CallExpression & {
-    callee: Identifier & { name: 'pattern' };
-    arguments: [NondynamicPatternArg];
-};
-
-type PatternTaggedTemplateExpression = TaggedTemplateExpression & {
-    tag: Identifier & { name: 'pattern' };
-    quasi: TemplateLiteral & { quasis: [TemplateElement]; expressions: [] };
-};
-
-function isNondynamicPatternCall(node: Node): node is PatternCallExpression {
+function isStaticPatternCall(node: Node): node is PatternCallExpression {
     if (!isCallExpression(node)) {
         return false;
     }
@@ -117,10 +121,10 @@ function isNondynamicPatternCall(node: Node): node is PatternCallExpression {
         return false;
     }
 
-    return isNondynamicString(args[0]) || isNumberLiteral(args[0]);
+    return isStaticString(args[0]) || isNumberLiteral(args[0]);
 }
 
-function isNondynamicPatternTaggedTemplateExpression(node: Node): node is PatternTaggedTemplateExpression {
+function isStaticPatternTemplate(node: Node): node is PatternTaggedTemplateExpression {
     if (!isTaggedTemplateExpression(node)) {
         return false;
     }
@@ -131,8 +135,8 @@ function isNondynamicPatternTaggedTemplateExpression(node: Node): node is Patter
     return isTemplateLiteral(node.quasi) && node.quasi.quasis.length === 1 && node.quasi.expressions.length === 0;
 }
 
-function isNondynamicPattern(node: Node): node is PatternCallExpression | PatternTaggedTemplateExpression {
-    return isNondynamicPatternCall(node) || isNondynamicPatternTaggedTemplateExpression(node);
+function isStaticPattern(node: Node): node is PatternCallExpression | PatternTaggedTemplateExpression {
+    return isStaticPatternCall(node) || isStaticPatternTemplate(node);
 }
 
 function isSimpleOptionsObject(node: Node): node is ObjectExpression {
@@ -147,9 +151,43 @@ function isSimpleOptionsObject(node: Node): node is ObjectExpression {
                 return false;
             }
 
-            return isSimpleOptionsObject(p.value) || isNondynamicString(p.value) || isBooleanLiteral(p.value);
+            return isSimpleOptionsObject(p.value) || isStaticString(p.value) || isBooleanLiteral(p.value);
         })
     );
+}
+
+function getStaticString(node: StringLiteral | TemplateLiteral | TaggedTemplateExpression): string {
+    if (isStringLiteral(node)) {
+        return node.value;
+    }
+
+    if (isTemplateLiteral(node)) {
+        return node.quasis[0].value.cooked ?? '';
+    }
+
+    return node.quasi.quasis[0].value.raw; // String.raw`...`
+}
+
+function getStaticRegExpCall(node: RegExpConstructorCall): RegExp {
+    const args = node.arguments ?? [];
+
+    return new RegExp(getStaticString(args[0]), args[1] ? getStaticString(args[1]) : undefined);
+}
+
+function getStaticPattern(node: PatternCallExpression | PatternTaggedTemplateExpression): ReturnType<typeof pattern> {
+    if (isCallExpression(node)) {
+        const arg = node.arguments[0];
+        if (isStaticString(arg)) {
+            return pattern(getStaticString(arg));
+        }
+        return pattern(arg.value);
+    }
+
+    return pattern(node.quasi.quasis[0].value.raw);
+}
+
+function getTemplateRawStrings(tagged: TaggedTemplateExpression): string[] {
+    return tagged.quasi.quasis.map((quasi) => quasi.value.raw);
 }
 
 export {
@@ -167,10 +205,16 @@ export {
     isNumberLiteral,
     isBooleanLiteral,
     isRegExpLiteral,
-    isNondynamicString,
-    isNondynamicRegExpCall,
+    isStaticString,
+    isStaticRegExpCall,
     type PatternCallExpression,
     type PatternTaggedTemplateExpression,
-    isNondynamicPattern,
+    isStaticPattern,
     isSimpleOptionsObject,
+    isStaticPatternTemplate,
+    isStaticPatternCall,
+    getStaticString,
+    getStaticPattern,
+    getStaticRegExpCall,
+    getTemplateRawStrings,
 };

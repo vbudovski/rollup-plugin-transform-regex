@@ -1,76 +1,33 @@
-import { walk } from 'npm:estree-walker';
-import MagicString from 'npm:magic-string';
-import { type InterpolatedValue, pattern, regex } from 'npm:regex';
-import regexpTree from 'npm:regexp-tree';
-import type { AstNode, Plugin, TransformResult } from 'npm:rollup';
 import { createFilter, type FilterPattern } from '@rollup/pluginutils';
 // @deno-types="@types/estree"
-import type {
-    CallExpression,
-    Expression,
-    Identifier,
-    NewExpression,
-    ObjectExpression,
-    Property,
-    TaggedTemplateExpression,
-    TemplateLiteral,
-} from 'estree';
+import type { Expression, Identifier, ObjectExpression, Property, TaggedTemplateExpression } from 'estree';
+import { walk } from 'estree-walker';
+import MagicString from 'magic-string';
+import { type InterpolatedValue, regex } from 'regex';
+import regexpTree from 'regexp-tree';
+import type { AstNode, Plugin, TransformResult } from 'rollup';
 import {
+    getStaticPattern,
+    getStaticRegExpCall,
+    getStaticString,
+    getTemplateRawStrings,
     isBooleanLiteral,
     isCallExpression,
     isExpressionStatement,
     isIdentifier,
-    isNondynamicPattern,
-    isNondynamicRegExpCall,
-    isNondynamicString,
     isNumberLiteral,
     isRegExpLiteral,
     isSimpleOptionsObject,
-    isStringLiteral,
+    isStaticPattern,
+    isStaticRegExpCall,
+    isStaticString,
     isTaggedTemplateExpression,
     isTemplateLiteral,
-    type PatternCallExpression,
-    type PatternTaggedTemplateExpression,
-    type StringLiteral,
-} from './guards.ts';
-import type { RegexOptions, SimpleOptions } from './types.ts';
-
-function getNondynamicString(node: StringLiteral | TemplateLiteral | TaggedTemplateExpression): string {
-    if (isStringLiteral(node)) {
-        return node.value;
-    }
-
-    if (isTemplateLiteral(node)) {
-        return node.quasis[0].value.cooked ?? '';
-    }
-
-    return node.quasi.quasis[0].value.raw; // String.raw`...`
-}
-
-function getNondynamicRegExpCall(node: CallExpression | NewExpression): RegExp {
-    const args = node.arguments ?? [];
-
-    return new RegExp(
-        getNondynamicString(args[0] as StringLiteral | TemplateLiteral | TaggedTemplateExpression),
-        args[1]
-            ? getNondynamicString(args[1] as StringLiteral | TemplateLiteral | TaggedTemplateExpression)
-            : undefined,
-    );
-}
-
-function getNondynamicPattern(
-    node: PatternCallExpression | PatternTaggedTemplateExpression,
-): ReturnType<typeof pattern> {
-    if (isCallExpression(node)) {
-        const arg = node.arguments[0];
-        if (isNondynamicString(arg)) {
-            return pattern(getNondynamicString(arg));
-        }
-        return pattern(arg.value);
-    }
-
-    return pattern(node.quasi.quasis[0].value.raw);
-}
+} from './ast.ts';
+import { emitExpandedRegExpConstructor, emitRegExpConstructor } from './emit.ts';
+import { computeOutputFlags, getRegexOptions } from './options.ts';
+import { expandSubroutines } from './subroutines.ts';
+import type { SimpleOptions } from './types.ts';
 
 function getSimpleOptionsObject(node: ObjectExpression): SimpleOptions {
     const options: Record<string, string | boolean | SimpleOptions> = {};
@@ -78,8 +35,8 @@ function getSimpleOptionsObject(node: ObjectExpression): SimpleOptions {
     for (const property of node.properties as Property[]) {
         const key = (property.key as Identifier).name;
 
-        if (isNondynamicString(property.value)) {
-            options[key] = getNondynamicString(property.value);
+        if (isStaticString(property.value)) {
+            options[key] = getStaticString(property.value);
         } else if (isBooleanLiteral(property.value)) {
             options[key] = property.value.value;
         } else if (isSimpleOptionsObject(property.value)) {
@@ -89,25 +46,38 @@ function getSimpleOptionsObject(node: ObjectExpression): SimpleOptions {
     return options;
 }
 
-function isWhitelistedInterpolation(expressions: Expression[]): boolean {
-    return expressions.every((e) => {
-        return (
-            isNondynamicString(e) ||
-            isNumberLiteral(e) ||
-            isRegExpLiteral(e) ||
-            isNondynamicRegExpCall(e) ||
-            isNondynamicPattern(e)
-        );
-    });
+/**
+ * Try to resolve all template expressions to static interpolated values in a
+ * single pass. Returns the values if every expression is precomputable, or
+ * null if any expression is dynamic.
+ */
+function tryPrecomputeExpressions(expressions: Expression[]): InterpolatedValue[] | null {
+    const out: InterpolatedValue[] = [];
+    for (const e of expressions) {
+        if (isStaticString(e)) {
+            out.push(getStaticString(e));
+        } else if (isNumberLiteral(e)) {
+            out.push(e.value);
+        } else if (isRegExpLiteral(e)) {
+            out.push(new RegExp(e.regex.pattern, e.regex.flags));
+        } else if (isStaticRegExpCall(e)) {
+            out.push(getStaticRegExpCall(e));
+        } else if (isStaticPattern(e)) {
+            out.push(getStaticPattern(e));
+        } else {
+            return null;
+        }
+    }
+    return out;
 }
 
-function getRegexCallArg(tagged: TaggedTemplateExpression): string | SimpleOptions | undefined {
+function getRegexCallArgument(tagged: TaggedTemplateExpression): string | SimpleOptions | undefined {
     if (isCallExpression(tagged.tag)) {
         const args = tagged.tag.arguments ?? [];
         if (args.length) {
             const arg = args[0];
-            if (isNondynamicString(arg)) {
-                return getNondynamicString(arg);
+            if (isStaticString(arg)) {
+                return getStaticString(arg);
             }
             if (isSimpleOptionsObject(arg)) {
                 return getSimpleOptionsObject(arg);
@@ -117,68 +87,23 @@ function getRegexCallArg(tagged: TaggedTemplateExpression): string | SimpleOptio
     return undefined;
 }
 
-function getRegexQuasisRaw(tagged: TaggedTemplateExpression): string[] {
-    return tagged.quasi.quasis.map((q) => q.value.raw);
-}
-
-function getRegexExpressions(tagged: TaggedTemplateExpression): InterpolatedValue[] {
-    const out: InterpolatedValue[] = [];
-    for (const e of tagged.quasi.expressions) {
-        if (isNondynamicString(e)) {
-            out.push(getNondynamicString(e));
-        } else if (isNumberLiteral(e)) {
-            out.push(e.value);
-        } else if (isRegExpLiteral(e)) {
-            out.push(new RegExp(e.regex.pattern, e.regex.flags));
-        } else if (isNondynamicRegExpCall(e)) {
-            out.push(getNondynamicRegExpCall(e));
-        } else if (isNondynamicPattern(e)) {
-            out.push(getNondynamicPattern(e));
-        }
-    }
-    return out;
-}
-
 function isRegexTemplate(node: TaggedTemplateExpression): boolean {
-    if (
-        !(
-            isTemplateLiteral(node.quasi) &&
-            (node.quasi.quasis.length === 1 || isWhitelistedInterpolation(node.quasi.expressions))
-        )
-    ) {
+    if (!isTemplateLiteral(node.quasi)) {
         return false;
     }
+
+    // regex`...`.
     if (isIdentifier(node.tag, 'regex')) {
         return true;
     }
 
-    if (!(isCallExpression(node.tag) && isIdentifier(node.tag.callee, 'regex'))) {
-        return false;
+    // regex(...)`...` where the single arg (if any) is static.
+    if (isCallExpression(node.tag) && isIdentifier(node.tag.callee, 'regex')) {
+        const args = node.tag.arguments ?? [];
+        return args.length === 0 || (args.length === 1 && (isStaticString(args[0]) || isSimpleOptionsObject(args[0])));
     }
 
-    const args = node.tag.arguments ?? [];
-    if (args.length === 0) {
-        return true;
-    }
-    if (args.length !== 1) {
-        return false;
-    }
-
-    return isNondynamicString(args[0]) || isSimpleOptionsObject(args[0]);
-}
-
-function getRegexOptions(
-    callArg: string | SimpleOptions | undefined,
-    opts: { disableUnicodeSets?: boolean; optimize?: boolean },
-): RegexOptions {
-    const { disableUnicodeSets, optimize } = opts;
-    const disableV = !!(disableUnicodeSets || optimize);
-    const options: RegexOptions = typeof callArg === 'string' ? { flags: callArg } : { ...(callArg ?? {}) };
-    if (disableV) {
-        options.disable ??= {};
-        options.disable.v = true;
-    }
-    return options;
+    return false;
 }
 
 interface RegexTransformPluginOptions {
@@ -215,7 +140,6 @@ function regexTransformPlugin({
                 enter(node, parent) {
                     const n = node as AstNode;
 
-                    // Remove `import ... from "regex"` if requested
                     if (removeImport && node.type === 'ImportDeclaration') {
                         if (node.source && node.source.type === 'Literal' && node.source.value === 'regex') {
                             s ??= new MagicString(code);
@@ -224,31 +148,55 @@ function regexTransformPlugin({
                         return;
                     }
 
-                    // Replace regex-tagged templates
                     if (isTaggedTemplateExpression(node) && isRegexTemplate(node)) {
-                        const callArg = getRegexCallArg(node);
-                        const options = getRegexOptions(callArg, {
-                            disableUnicodeSets,
-                            optimize,
-                        });
-                        const quasis = getRegexQuasisRaw(node);
-                        const expressions = getRegexExpressions(node);
+                        const callArg = getRegexCallArgument(node);
+                        const precomputed =
+                            node.quasi.quasis.length === 1 ? [] : tryPrecomputeExpressions(node.quasi.expressions);
 
-                        let re = regex(options)({ raw: quasis }, ...expressions);
-                        if (optimize && !options.force?.v) {
-                            re = regexpTree
-                                .optimize(re, [
-                                    'charEscapeUnescape',
-                                    'groupSingleCharsToCharClass',
-                                    'removeEmptyGroup',
-                                    'ungroup',
-                                ])
-                                .toRegExp();
+                        if (precomputed) {
+                            // Static expressions that can be turned into a literal.
+                            const options = getRegexOptions(callArg, {
+                                disableUnicodeSets,
+                                optimize,
+                            });
+                            const quasis = getTemplateRawStrings(node);
+
+                            let re = regex(options)({ raw: quasis }, ...precomputed);
+                            if (optimize && !options.force?.v) {
+                                re = regexpTree
+                                    .optimize(re, [
+                                        'charEscapeUnescape',
+                                        'groupSingleCharsToCharClass',
+                                        'removeEmptyGroup',
+                                        'ungroup',
+                                    ])
+                                    .toRegExp();
+                            }
+
+                            const literal = `/${re.source}/${re.flags}`;
+                            s ??= new MagicString(code);
+                            s.overwrite(n.start, n.end, literal);
+                        } else {
+                            // Dynamic expressions that need to be called with the RegExp constructor.
+                            const outFlags = computeOutputFlags(callArg, { disableUnicodeSets, optimize });
+
+                            const result = expandSubroutines(node, callArg, {
+                                disableUnicodeSets,
+                                optimize,
+                            });
+
+                            const replacement = result
+                                ? emitExpandedRegExpConstructor(
+                                      node,
+                                      code,
+                                      result.expandedQuasis,
+                                      outFlags,
+                                      result.subroutineMap,
+                                  )
+                                : emitRegExpConstructor(node, code, outFlags);
+                            s ??= new MagicString(code);
+                            s.overwrite(n.start, n.end, replacement);
                         }
-
-                        const literal = `/${re.source}/${re.flags}`;
-                        s ??= new MagicString(code);
-                        s.overwrite(n.start, n.end, literal);
 
                         if (isExpressionStatement(parent) && parent.expression === node) {
                             const parentNode = parent as unknown as AstNode;

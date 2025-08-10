@@ -1,8 +1,16 @@
 import { parse } from 'acorn';
+import type { TransformResult } from 'rollup';
 import { type RegexTransformPluginOptions, regexTransformPlugin } from '../src/index.ts';
 
 function makeTransformed(module: string) {
     return (input: string, options: RegexTransformPluginOptions = {}): string => {
+        const plugin = regexTransformPlugin(options);
+        const transform = plugin.transform as unknown as (
+            this: { parse: typeof parse },
+            code: string,
+            id: string,
+        ) => TransformResult;
+
         const context = {
             parse: (input: string) =>
                 parse(input, {
@@ -12,10 +20,9 @@ function makeTransformed(module: string) {
                     ranges: false,
                     allowAwaitOutsideFunction: true,
                 }),
-            ...regexTransformPlugin(options),
         };
 
-        return (context as any).transform(input, module).code;
+        return (transform.call(context, input, module) as { code: string }).code;
     };
 }
 
