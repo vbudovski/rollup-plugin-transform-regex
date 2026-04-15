@@ -1,4 +1,3 @@
-// @deno-types="@types/estree"
 import type {
     CallExpression,
     Identifier,

@@ -1,5 +1,4 @@
 import { createFilter, type FilterPattern } from '@rollup/pluginutils';
-// @deno-types="@types/estree"
 import type { Expression, Identifier, ObjectExpression, Property, TaggedTemplateExpression } from 'estree';
 import { walk } from 'estree-walker';
 import MagicString from 'magic-string';

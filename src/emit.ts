@@ -1,4 +1,3 @@
-// @deno-types="@types/estree"
 import type { Expression, TaggedTemplateExpression } from 'estree';
 import type { AstNode } from 'rollup';
 import {

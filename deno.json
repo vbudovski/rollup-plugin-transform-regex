@@ -13,6 +13,7 @@
     "@std/expect": "jsr:@std/expect@^1.0.18",
     "@std/testing/bdd": "jsr:@std/testing@^1.0.17/bdd",
     "@types/estree": "npm:@types/estree@^1.0.8",
+    "estree": "npm:@types/estree@^1.0.8",
     "acorn": "npm:acorn@^8.16.0",
     "estree-walker": "npm:estree-walker@^3.0.3",
     "magic-string": "npm:magic-string@^0.30.21",

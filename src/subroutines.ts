@@ -1,4 +1,3 @@
-// @deno-types="@types/estree"
 import type { TaggedTemplateExpression } from 'estree';
 import { regex } from 'regex';
 import { getTemplateRawStrings } from './ast.ts';
