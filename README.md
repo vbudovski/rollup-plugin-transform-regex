@@ -7,11 +7,11 @@
 
 # Transform Regex+ Rollup Plugin
 
-This is a [Rollup](https://rollupjs.org) plugin that transpiles tagged [Regex+](https://github.com/slevithan/regex)
-regex templates into native RegExp literals, enabling syntax for modern, readable regex features (atomic groups,
-subroutines, insignificant whitespace, comments, etc.) without the need for calling regex at runtime. Although Regex+ is
-already a lightweight and high-performance library, this takes things further by giving you its developer experience
-benefits without adding any runtime dependencies and without users paying any runtime cost.
+This is based on the existing [babel-plugin-transform-regex](https://github.com/slevithan/babel-plugin-transform-regex),
+but with the addition of dynamic regex functions.
 
-Note: This is a port of the
-existing [babel-plugin-transform-regex](https://github.com/slevithan/babel-plugin-transform-regex).
+> This is a [Rollup](https://rollupjs.org) plugin that transpiles tagged [Regex+](https://github.com/slevithan/regex)
+> regex templates into native RegExp literals, enabling syntax for modern, readable regex features (atomic groups,
+> subroutines, insignificant whitespace, comments, etc.) without the need for calling regex at runtime. Although Regex+
+> is already a lightweight and high-performance library, this takes things further by giving you its developer
+> experience benefits without adding any runtime dependencies and without users paying any runtime cost.
