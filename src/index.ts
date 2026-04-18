@@ -94,14 +94,8 @@ function escapeVFlagReservedInCharacterClasses(source: string): string {
         }
 
         if (characterClassDepth > 0 && V_FLAG_CHARACTER_CLASS_RESERVED.has(character)) {
-            if (source[index + 1] === character) {
-                // Doubled punctuator (e.g. &&, !!) — escape both.
-                result += '\\' + character + '\\' + character;
-                index += 2;
-            } else {
-                result += character;
-                index++;
-            }
+            result += '\\' + character;
+            index++;
             continue;
         }
 
