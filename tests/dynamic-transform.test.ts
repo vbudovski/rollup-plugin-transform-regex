@@ -8,38 +8,38 @@ describe('dynamic transform', () => {
     describe('basic interpolation', () => {
         it('without flags', () => {
             expect(transformed('const re = (n) => regex`^\\d${n}$`;')).toBe(
-                'const re = (n) => new RegExp(String.raw`^\\d${n}$`, "v");',
+                'const re = (n) => new RegExp(`^\\\\d${n}$`, "v");',
             );
         });
 
         it('with flags', () => {
             expect(transformed("const re = (n) => regex('i')`^\\d${n}$`;")).toBe(
-                'const re = (n) => new RegExp(String.raw`^\\d${n}$`, "iv");',
+                'const re = (n) => new RegExp(`^\\\\d${n}$`, "iv");',
             );
         });
 
         it('with nested RegExp', () => {
             expect(transformed('const re = (n) => regex`${/abc/}${n}`;')).toBe(
-                'const re = (n) => new RegExp(String.raw`${(/abc/).source}${n}`, "v");',
+                'const re = (n) => new RegExp(`${(/abc/).source}${n}`, "v");',
             );
         });
 
         describe('without unicode sets', () => {
             it('without flags', () => {
                 expect(transformed('const re = (n) => regex`^\\d${n}$`;', { disableUnicodeSets: true })).toBe(
-                    'const re = (n) => new RegExp(String.raw`^\\d${n}$`);',
+                    'const re = (n) => new RegExp(`^\\\\d${n}$`);',
                 );
             });
 
             it('with flags', () => {
                 expect(transformed("const re = (n) => regex('i')`^\\d${n}$`;", { disableUnicodeSets: true })).toBe(
-                    'const re = (n) => new RegExp(String.raw`^\\d${n}$`, "i");',
+                    'const re = (n) => new RegExp(`^\\\\d${n}$`, "i");',
                 );
             });
 
             it('with nested RegExp', () => {
                 expect(transformed('const re = (n) => regex`${/abc/}${n}`;', { disableUnicodeSets: true })).toBe(
-                    'const re = (n) => new RegExp(String.raw`${(/abc/).source}${n}`);',
+                    'const re = (n) => new RegExp(`${(/abc/).source}${n}`);',
                 );
             });
         });
@@ -48,7 +48,7 @@ describe('dynamic transform', () => {
     describe('expression lowering', () => {
         it('bare identifier', () => {
             const result = transformed('const re = (n) => regex`^\\d${n}$`');
-            expect(result).toBe('const re = (n) => new RegExp(String.raw`^\\d${n}$`, "v")');
+            expect(result).toBe('const re = (n) => new RegExp(`^\\\\d${n}$`, "v")');
         });
 
         it('String() call', () => {
@@ -56,7 +56,7 @@ describe('dynamic transform', () => {
                 'const re = (p) => regex`^\\d+${p === undefined ? pattern`(\\.\\d+)?` : pattern`\\.\\d{${String(p)}}`}$`';
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (p) => new RegExp(String.raw`^\\d+${((p === undefined)?("(\\\\.\\\\d+)?"):(String.raw`\\.\\d{${String(p)}}`))}$`, "v")',
+                'const re = (p) => new RegExp(`^\\\\d+${((p === undefined)?("(\\\\.\\\\d+)?"):(`\\\\.\\\\d{${String(p)}}`))}$`, "v")',
             );
         });
     });
@@ -66,7 +66,7 @@ describe('dynamic transform', () => {
             const input = 'const re = (p) => regex`^\\d+${p === undefined ? pattern`(\\.\\d+)?` : pattern`\\.\\d+`}$`';
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (p) => new RegExp(String.raw`^\\d+${((p === undefined)?("(\\\\.\\\\d+)?"):("\\\\.\\\\d+"))}$`, "v")',
+                'const re = (p) => new RegExp(`^\\\\d+${((p === undefined)?("(\\\\.\\\\d+)?"):("\\\\.\\\\d+"))}$`, "v")',
             );
         });
 
@@ -75,7 +75,7 @@ describe('dynamic transform', () => {
                 'const re = (p) => regex`^\\d+${p === undefined ? pattern`(\\.\\d+)?` : pattern`\\.\\d{${String(p)}}`}$`';
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (p) => new RegExp(String.raw`^\\d+${((p === undefined)?("(\\\\.\\\\d+)?"):(String.raw`\\.\\d{${String(p)}}`))}$`, "v")',
+                'const re = (p) => new RegExp(`^\\\\d+${((p === undefined)?("(\\\\.\\\\d+)?"):(`\\\\.\\\\d{${String(p)}}`))}$`, "v")',
             );
         });
 
@@ -83,7 +83,7 @@ describe('dynamic transform', () => {
             const input = "const re = (v) => regex('i')`^${v === 4 ? pattern`\\d+\\.\\d+` : pattern`[a-f\\d]+`}$`";
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (v) => new RegExp(String.raw`^${((v === 4)?("\\\\d+\\\\.\\\\d+"):("[a-f\\\\d]+"))}$`, "iv")',
+                'const re = (v) => new RegExp(`^${((v === 4)?("\\\\d+\\\\.\\\\d+"):("[a-f\\\\d]+"))}$`, "iv")',
             );
         });
 
@@ -92,7 +92,7 @@ describe('dynamic transform', () => {
                 'const re = (v) => regex`^${v === undefined ? pattern`(a|b)` : v === 4 ? pattern`a` : pattern`b`}$`';
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (v) => new RegExp(String.raw`^${((v === undefined)?("(a|b)"):(((v === 4)?("a"):("b"))))}$`, "v")',
+                'const re = (v) => new RegExp(`^${((v === undefined)?("(a|b)"):(((v === 4)?("a"):("b"))))}$`, "v")',
             );
         });
 
@@ -101,7 +101,7 @@ describe('dynamic transform', () => {
                 'const re = (a, b) => regex`^${a ? pattern`\\d+` : pattern`\\w+`}-${b ? pattern`[a-z]` : pattern`[A-Z]`}$`';
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (a, b) => new RegExp(String.raw`^${((a)?("\\\\d+"):("\\\\w+"))}-${((b)?("[a-z]"):("[A-Z]"))}$`, "v")',
+                'const re = (a, b) => new RegExp(`^${((a)?("\\\\d+"):("\\\\w+"))}-${((b)?("[a-z]"):("[A-Z]"))}$`, "v")',
             );
         });
 
@@ -110,7 +110,7 @@ describe('dynamic transform', () => {
                 'const re = (a, b) => regex`^\\d+${a && b ? pattern`(X|Y)` : a ? pattern`(X|Z)` : pattern`Z`}$`';
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (a, b) => new RegExp(String.raw`^\\d+${((a && b)?("(X|Y)"):(((a)?("(X|Z)"):("Z"))))}$`, "v")',
+                'const re = (a, b) => new RegExp(`^\\\\d+${((a && b)?("(X|Y)"):(((a)?("(X|Z)"):("Z"))))}$`, "v")',
             );
         });
     });
@@ -119,19 +119,19 @@ describe('dynamic transform', () => {
         it('expands references', () => {
             const input = 'const re = (n) => regex`^ \\g<foo> ${n} \\g<foo> $ (?(DEFINE) (?<foo> ([a-z])))`';
             const result = transformed(input);
-            expect(result).toBe('const re = (n) => new RegExp(String.raw`^(?:(?:[a-z]))${n}(?:(?:[a-z]))$`, "v")');
+            expect(result).toBe('const re = (n) => new RegExp(`^(?:(?:[a-z]))${n}(?:(?:[a-z]))$`, "v")');
         });
 
         it('with flags', () => {
             const input = "const re = (n) => regex('i')`^ \\g<foo> ${n} $ (?(DEFINE) (?<foo> [a-z]+))`";
             const result = transformed(input);
-            expect(result).toBe('const re = (n) => new RegExp(String.raw`^(?:[a-z]+)${n}$`, "iv")');
+            expect(result).toBe('const re = (n) => new RegExp(`^(?:[a-z]+)${n}$`, "iv")');
         });
 
         it('multiple references', () => {
             const input = 'const re = (n) => regex`^ \\g<a> ${n} \\g<b> $ (?(DEFINE) (?<a> \\d+) (?<b> [a-z]+))`';
             const result = transformed(input);
-            expect(result).toBe('const re = (n) => new RegExp(String.raw`^(?:\\d+)${n}(?:[a-z]+)$`, "v")');
+            expect(result).toBe('const re = (n) => new RegExp(`^(?:\\\\d+)${n}(?:[a-z]+)$`, "v")');
         });
 
         it('ternary inside DEFINE group', () => {
@@ -139,14 +139,14 @@ describe('dynamic transform', () => {
                 'const re = (p) => regex`^ \\g<t> $ (?(DEFINE) (?<t> \\d{2}:\\d{2} ${p === undefined ? pattern`(\\.\\d+)?` : pattern`\\.\\d+`}))`';
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (p) => new RegExp(String.raw`^(?:\\d{2}:\\d{2}${((p === undefined)?("(\\\\.\\\\d+)?"):("\\\\.\\\\d+"))})$`, "v")',
+                'const re = (p) => new RegExp(`^(?:\\\\d{2}:\\\\d{2}${((p === undefined)?("(\\\\.\\\\d+)?"):("\\\\.\\\\d+"))})$`, "v")',
             );
         });
 
         it('with disableUnicodeSets', () => {
             const input = "const re = (n) => regex('i')`^ \\g<foo> ${n} $ (?(DEFINE) (?<foo> [a-z]+))`";
             const result = transformed(input, { disableUnicodeSets: true });
-            expect(result).toBe('const re = (n) => new RegExp(String.raw`^(?:[a-z]+)${n}$`, "i")');
+            expect(result).toBe('const re = (n) => new RegExp(`^(?:[a-z]+)${n}$`, "i")');
         });
 
         it('expands refs across N ternary branches', () => {
@@ -163,7 +163,7 @@ describe('dynamic transform', () => {
             ].join('\n');
             const result = transformed(input);
             expect(result).toBe(
-                'const re = (n) => new RegExp(String.raw`^(?:${((n === 1)?("(?:x+)"):(((n === 2)?("(?:y+)"):(((n === 3)?("(?:z+)"):("((?:x+)|(?:y+)|(?:z+))"))))))})$`, "v")',
+                'const re = (n) => new RegExp(`^(?:${((n === 1)?("(?:x+)"):(((n === 2)?("(?:y+)"):(((n === 3)?("(?:z+)"):("((?:x+)|(?:y+)|(?:z+))"))))))})$`, "v")',
             );
         });
     });

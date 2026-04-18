@@ -14,10 +14,9 @@ import {
 } from './ast.ts';
 import { expandSubroutineReferences } from './subroutines.ts';
 
-function escapeForRawTemplate(s: string): string {
-    // Escape the template delimiter, and the placeholder opener only.
-    // Do NOT escape backslashes here, since we're using String.raw.
-    return s.replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+function escapeForTemplate(s: string): string {
+    // Double backslashes, then escape the template delimiter and placeholder opener.
+    return s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
 }
 
 const WHITESPACE = new Set([' ', '\t', '\n', '\r', '\f', '\v']);
@@ -76,9 +75,9 @@ function emitExpression(expression: Expression, code: string, subroutineMap: Map
         expression.quasi.expressions.length > 0
     ) {
         const raws = expression.quasi.quasis.map((quasi) =>
-            escapeForRawTemplate(stripFreeSpacing(expandSubroutineReferences(quasi.value.raw, subroutineMap))),
+            escapeForTemplate(stripFreeSpacing(expandSubroutineReferences(quasi.value.raw, subroutineMap))),
         );
-        let out = 'String.raw`';
+        let out = '`';
         for (let i = 0; i < raws.length; i++) {
             out += raws[i];
             if (i < expression.quasi.expressions.length) {
@@ -145,9 +144,9 @@ function emitRegExpConstructor(
     flags?: string,
     subroutineMap: Map<string, string> = new Map(),
 ): string {
-    const raws = getTemplateRawStrings(tagged).map(escapeForRawTemplate);
+    const raws = getTemplateRawStrings(tagged).map(escapeForTemplate);
 
-    let out = 'new RegExp(String.raw`';
+    let out = 'new RegExp(`';
     for (let i = 0; i < raws.length; i++) {
         out += raws[i];
         if (i < tagged.quasi.expressions.length) {
@@ -170,9 +169,9 @@ function emitExpandedRegExpConstructor(
     flags?: string,
     subroutineMap: Map<string, string> = new Map(),
 ): string {
-    let out = 'new RegExp(String.raw`';
+    let out = 'new RegExp(`';
     for (let i = 0; i < expandedQuasis.length; i++) {
-        out += escapeForRawTemplate(expandedQuasis[i]);
+        out += escapeForTemplate(expandedQuasis[i]);
         if (i < tagged.quasi.expressions.length) {
             out += `\${${emitExpression(tagged.quasi.expressions[i], code, subroutineMap)}}`;
         }
