@@ -28,6 +28,84 @@ import { computeOutputFlags, getRegexOptions } from './options.ts';
 import { expandSubroutines } from './subroutines.ts';
 import type { SimpleOptions } from './types.ts';
 
+/**
+ * Characters that are reserved inside character classes in v-mode but not in
+ * u-mode.  `RegExp.prototype.source` may leave them unescaped because the
+ * engine doesn't re-serialize for a specific flag context.
+ */
+const V_FLAG_CHARACTER_CLASS_RESERVED = new Set([
+    '&',
+    '!',
+    '#',
+    '$',
+    '%',
+    '*',
+    '+',
+    ',',
+    '.',
+    ':',
+    ';',
+    '<',
+    '=',
+    '>',
+    '?',
+    '@',
+    '`',
+    '~',
+    '^',
+]);
+
+/**
+ * Post-process a regex source so that reserved double-punctuator characters
+ * inside character classes are escaped for the v flag.
+ */
+function escapeVFlagReservedInCharacterClasses(source: string): string {
+    let result = '';
+    let characterClassDepth = 0;
+    let index = 0;
+
+    while (index < source.length) {
+        const character = source[index];
+
+        // Skip escape sequences.
+        if (character === '\\') {
+            result += character + (source[index + 1] ?? '');
+            index += 2;
+            continue;
+        }
+
+        if (character === '[') {
+            characterClassDepth++;
+            result += character;
+            index++;
+            // Preserve negation caret at the start of a class.
+            if (index < source.length && source[index] === '^') {
+                result += '^';
+                index++;
+            }
+            continue;
+        }
+
+        if (character === ']' && characterClassDepth > 0) {
+            characterClassDepth--;
+            result += character;
+            index++;
+            continue;
+        }
+
+        if (characterClassDepth > 0 && V_FLAG_CHARACTER_CLASS_RESERVED.has(character)) {
+            result += '\\' + character;
+            index++;
+            continue;
+        }
+
+        result += character;
+        index++;
+    }
+
+    return result;
+}
+
 function getSimpleOptionsObject(node: ObjectExpression): SimpleOptions {
     const options: Record<string, string | boolean | SimpleOptions> = {};
 
@@ -172,7 +250,10 @@ function regexTransformPlugin({
                                     .toRegExp();
                             }
 
-                            const literal = `/${re.source}/${re.flags}`;
+                            const source = re.flags.includes('v')
+                                ? escapeVFlagReservedInCharacterClasses(re.source)
+                                : re.source;
+                            const literal = `/${source}/${re.flags}`;
                             s ??= new MagicString(code);
                             s.overwrite(n.start, n.end, literal);
                         } else {

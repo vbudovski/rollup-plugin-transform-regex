@@ -137,5 +137,10 @@ describe('static transform', () => {
             const result = transformed('const re = regex`^(\\d)++$`');
             expect(result).toBe('const re = /^(?:(?=((?:\\d)+))\\1)$/v');
         });
+
+        it('escapes v-flag reserved punctuators inside character classes', () => {
+            const result = transformed(String.raw`const re = regex('i')` + "`[a-z\\d!#$%&'*\\-\\/=?^_~+]+`");
+            expect(result).toBe(String.raw`const re = /[a-z\d\!\#\$\%\&'\*\-\/\=\?\^_\~\+]+/iv`);
+        });
     });
 });
